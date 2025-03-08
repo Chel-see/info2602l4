@@ -178,6 +178,31 @@ class Admin(User):
       'polymorphic_identity': 'admin',
   }
 
+  def get_todo_stats(self):
+    todos = Todo.query.all()
+    res = {}
+    for todo in todos:
+      if todo.user.username in res:
+        res[todo.user.username]+=1
+      else:
+        res[todo.user.username]=1
+    return res
+    
+  def search_todos(self, q, page): 
+    matching_todos = None
+  
+    if q!="" :
+      matching_todos = Todo.query.join(RegularUser).filter(
+        db.or_(RegularUser.username.ilike(f'%{q}%'), Todo.text.ilike(f'%{q}%'), Todo.id.ilike(f'%{q}%'))
+      )
+    else:
+      matching_todos = Todo.query
+      
+    return matching_todos.paginate(page=page, per_page=10)
+  # def search_todos(self, page):
+  #   matching_todos = Todo.query
+  #   return matching_todos.paginate(page=page, per_page=10)
+
   def get_all_todos_json(self):
     todos = Todo.query.all()
     if todos:

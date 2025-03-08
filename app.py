@@ -116,6 +116,54 @@ def edit_todo_page(id):
   flash('Todo not found or unauthorized')
   return redirect(url_for('todos_page'))
 
+@app.route('/logout', methods=['GET'])
+@jwt_required()
+def logout_action():
+  flash('Logged Out')
+  response = redirect(url_for('login_page'))
+  unset_jwt_cookies(response)
+  return 
+  
+@app.route('/admin')
+@login_required(Admin)
+def admin_page():
+  page = request.args.get('page', 1, type=int)
+  q = request.args.get('q', default='', type=str)
+  done = request.args.get('done', default='any', type=str)
+  todos = current_user.search_todos(q, done, page)
+  return render_template('admin.html', todos=todos, q=q, page=page, done=done)
+
+@app.route('/todo-stats', methods=["GET"])
+@login_required(Admin)
+def todo_stats():
+  return jsonify(current_user.get_todo_stats())
+
+@app.route('/stats')
+@login_required(Admin)
+def stats_page():
+  return render_template('stats.html')
+  
+# @app.route('/admin')
+# @login_required(Admin)
+# def admin_page():
+#   page = request.args.get('page', 1, type=int)
+#   q = request.args.get('q', default='', type=str)
+#   todos = current_user.search_todos(q, page)
+#   return render_template('admin.html', todos=todos, page=page, q=q)
+
+# @app.route('/admin')
+# @login_required(Admin)
+# def admin_page():
+#   page = request.args.get('page', 1, type=int)
+#   todos = current_user.search_todos(page)
+#   return render_template('admin.html', todos=todos, page=page)
+
+# @app.route('/admin')
+# @login_required(Admin)
+# def admin_page():
+#   todos = Todo.query.all()
+#   return render_template('admin.html', todos=todos)
+
 
 # Action Routes
 @app.route('/signup', methods=['POST'])
@@ -142,15 +190,18 @@ def login_action():
   token = login_user(data['username'], data['password'])
   print(token)
   response = None
+  user = User.query.filter_by(username=data['username']).first()
   if token:
     flash('Logged in successfully.')  # send message to next page
-    response = redirect(
-        url_for('todos_page'))  # redirect to main page if login successful
+    if user.type == "regular user":
+      response = redirect(url_for('todos_page'))
+    else :
+      response = redirect(url_for('admin_page'))  # redirect to main page if login successful
     set_access_cookies(response, token)
   else:
     flash('Invalid username or password')  # send message to next page
     response = redirect(url_for('login_page'))
-  return response
+    return response
 
 @app.route('/createTodo', methods=['POST'])
 @jwt_required()
@@ -160,6 +211,63 @@ def create_todo_action():
   flash('Created')
   return redirect(url_for('todos_page'))
 
+@app.route('/toggle/<id>', methods=['POST'])
+@jwt_required()
+def toggle_todo_action(id):
+  todo = current_user.toggle_todo(id)
+  if todo is None:
+    flash('Invalid id or unauthorized')
+  else:
+    flash(f'Todo { "done" if todo.done else "not done" }!')
+  return redirect(url_for('todos_page'))\
+
+@app.route('/editTodo/<id>', methods=["POST"])
+@jwt_required()
+def edit_todo_action(id):
+  data = request.form
+  res = current_user.update_todo(id, data["text"])
+  if res:
+    flash('Todo Updated!')
+  else:
+    flash('Todo not found or unauthorized')
+  return redirect(url_for('todos_page'))
+
+@app.route('/deleteTodo/<id>', methods=["GET"])
+@jwt_required()
+def delete_todo_action(id):
+  res = current_user.delete_todo(id)
+  if res == None:
+    flash('Invalid id or unauthorized')
+  else:
+    flash('Todo Deleted')
+  return redirect(url_for('todos_page'))
+
+def search_todos(self, q, done, page): 
+      matching_todos = None
+    
+      if q!="" and done=="any" :
+        #search query and done is any - just do search
+        matching_todos = Todo.query.join(RegularUser).filter(
+          db.or_(RegularUser.username.ilike(f'%{q}%'), Todo.text.ilike(f'%{q}%'), Todo.id.ilike(f'%{q}%'))
+        )
+      elif q!="":
+        #search query and done is true or false - search then filter by done
+        is_done = True if done=="true" else False
+        matching_todos = Todo.query.join(RegularUser).filter(
+          db.or_(RegularUser.username.ilike(f'%{q}%'), Todo.text.ilike(f'%{q}%'), Todo.id.ilike(f'%{q}%')),
+          Todo.done == is_done
+        )
+      elif done != "any":
+        # done is true/false but no search query - filter by done only
+        is_done = True if done=="true" else False
+        matching_todos = Todo.query.filter_by(
+            done= is_done
+        )
+      else:
+        # done is any and no search query - all results
+        matching_todos = Todo.query
+        
+      return matching_todos.paginate(page=page, per_page=10)
 
 if __name__ == "__main__":
   app.run(host='0.0.0.0', port=81)
